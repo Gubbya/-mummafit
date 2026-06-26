@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "MummaFit Marathi",
+    "slug": "mummafit-marathi",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#FFF7F0"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.mummafitmarathi"
+    },
+    "android": {
+      "package": "com.example.mummafitmarathi",
+      "permissions": ["POST_NOTIFICATIONS"]
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-image-picker"
+    ]
+  }
+}
