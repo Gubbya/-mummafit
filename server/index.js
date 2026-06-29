@@ -12,6 +12,7 @@ const dbName = process.env.MONGODB_DB || 'mummafit';
 
 let client;
 let db;
+let connectionPromise;
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -22,8 +23,16 @@ async function connectDb() {
     throw new Error('MONGODB_URI is missing. Create server/.env from server/.env.example.');
   }
 
-  client = new MongoClient(mongoUri);
-  await client.connect();
+  if (!connectionPromise) {
+    client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 10000 });
+    connectionPromise = client.connect().catch((error) => {
+      connectionPromise = undefined;
+      client = undefined;
+      throw error;
+    });
+  }
+
+  await connectionPromise;
   db = client.db(dbName);
   await db.collection('dailyLogs').createIndex({ userId: 1, date: 1 }, { unique: true });
   return db;

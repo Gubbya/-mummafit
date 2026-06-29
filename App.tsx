@@ -81,7 +81,7 @@ function getDefaultSettings(): AppSettings {
   return {
     language: 'en',
     userId: 'mummafit-personal',
-    apiUrl: 'http://192.168.31.207:4000'
+    apiUrl: 'http://192.168.31.207:4100'
   };
 }
 

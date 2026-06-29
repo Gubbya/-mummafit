@@ -60,7 +60,7 @@ npm run server
 6. Check it locally:
 
 ```text
-http://localhost:4000/health
+http://localhost:4100/health
 ```
 
 ## Important health disclaimer
