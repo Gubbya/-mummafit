@@ -43,6 +43,26 @@ When the development server is running on this computer, open Expo Go on a phone
 exp://192.168.31.207:8081
 ```
 
+## Optional MongoDB backup API
+
+The mobile app should not store a MongoDB password directly. Use the small backend in `server/` when you want cloud backup.
+
+1. Rotate any MongoDB password that was pasted into chat or shared anywhere.
+2. Copy `server/.env.example` to `server/.env`.
+3. Put your MongoDB Atlas URI in `server/.env`.
+4. If your password contains special characters such as `@`, URL-encode them in the URI.
+5. Start the API:
+
+```bash
+npm run server
+```
+
+6. Check it locally:
+
+```text
+http://localhost:4000/health
+```
+
 ## Important health disclaimer
 
 This app is only a tracker and educational helper. It does not replace medical advice, especially for breastfeeding, thyroid dose changes, C-section recovery, severe headache, heel pain, or milk supply concerns.
