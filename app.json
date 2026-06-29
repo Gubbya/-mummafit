@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "MummaFit Marathi",
-    "slug": "mummafit-marathi",
+    "name": "mummafit",
+    "slug": "mummafit",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,10 +12,10 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.mummafitmarathi"
+      "bundleIdentifier": "com.example.mummafit"
     },
     "android": {
-      "package": "com.example.mummafitmarathi",
+      "package": "com.example.mummafit",
       "permissions": ["POST_NOTIFICATIONS"]
     },
     "plugins": [

@@ -5,9 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -16,8 +14,10 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FOODS, findFood } from './src/data/foods';
+import { RECIPE_INGREDIENTS, findRecipeIngredient } from './src/data/ingredients';
 import { WORKOUTS } from './src/data/workouts';
 import { DailyLog, IngredientEntry, MealEntry, MealType } from './src/types';
 import { calculateItems, calculateMeals, getDailySafetySuggestion, getFoodSuggestion, roundTotals } from './src/utils/nutrition';
@@ -61,6 +61,10 @@ export default function App() {
   const [mealNote, setMealNote] = useState<string>('');
   const [mealImageUri, setMealImageUri] = useState<string | undefined>();
   const [recipeItems, setRecipeItems] = useState<IngredientEntry[]>([]);
+  const [selectedRecipeIngredientId, setSelectedRecipeIngredientId] = useState<string>('wheat-flour');
+  const [recipeWeightGrams, setRecipeWeightGrams] = useState<string>('100');
+  const [customIngredientName, setCustomIngredientName] = useState<string>('');
+  const [customCaloriesPer100g, setCustomCaloriesPer100g] = useState<string>('');
   const [recipeServings, setRecipeServings] = useState<string>('4');
   const [reminderStatus, setReminderStatus] = useState<string>('Not set');
 
@@ -95,6 +99,7 @@ export default function App() {
   const totals = useMemo(() => roundTotals(calculateMeals(log.meals)), [log.meals]);
   const todayWorkout = WORKOUTS.find((workout) => workout.day === getWeekday()) ?? WORKOUTS[0];
   const selectedFood = findFood(selectedFoodId);
+  const selectedRecipeIngredient = findRecipeIngredient(selectedRecipeIngredientId);
   const recipeTotals = roundTotals(calculateItems(recipeItems));
   const servings = Math.max(1, Number(recipeServings) || 1);
   const perServing = {
@@ -166,9 +171,49 @@ export default function App() {
   }
 
   function addRecipeItem() {
-    const q = Number(quantity);
-    if (!Number.isFinite(q) || q <= 0) return;
-    setRecipeItems((items) => [{ id: `${Date.now()}`, foodId: selectedFoodId, quantity: q }, ...items]);
+    const weightGrams = Number(recipeWeightGrams);
+    if (!selectedRecipeIngredient || !Number.isFinite(weightGrams) || weightGrams <= 0) {
+      Alert.alert('Check weight', 'Please enter approximate ingredient weight in grams.');
+      return;
+    }
+
+    setRecipeItems((items) => [{
+      id: `${Date.now()}`,
+      name: selectedRecipeIngredient.name,
+      weightGrams,
+      caloriesPer100g: selectedRecipeIngredient.caloriesPer100g,
+      proteinPer100g: selectedRecipeIngredient.proteinPer100g,
+      carbsPer100g: selectedRecipeIngredient.carbsPer100g,
+      fatPer100g: selectedRecipeIngredient.fatPer100g
+    }, ...items]);
+    setRecipeWeightGrams('100');
+  }
+
+  function addCustomRecipeItem() {
+    const weightGrams = Number(recipeWeightGrams);
+    const caloriesPer100g = Number(customCaloriesPer100g);
+    const name = customIngredientName.trim();
+    if (!name || !Number.isFinite(weightGrams) || weightGrams <= 0 || !Number.isFinite(caloriesPer100g) || caloriesPer100g < 0) {
+      Alert.alert('Check custom ingredient', 'Add ingredient name, approximate grams, and calories per 100 g.');
+      return;
+    }
+
+    setRecipeItems((items) => [{
+      id: `${Date.now()}`,
+      name,
+      weightGrams,
+      caloriesPer100g,
+      proteinPer100g: 0,
+      carbsPer100g: 0,
+      fatPer100g: 0
+    }, ...items]);
+    setCustomIngredientName('');
+    setCustomCaloriesPer100g('');
+    setRecipeWeightGrams('100');
+  }
+
+  function deleteRecipeItem(itemId: string) {
+    setRecipeItems((items) => items.filter((item) => item.id !== itemId));
   }
 
   async function pickImage() {
@@ -191,7 +236,7 @@ export default function App() {
 
   async function setupReminders() {
     const created = await scheduleDefaultReminders();
-    setReminderStatus(created > 0 ? `${created} daily reminders set` : 'Permission not granted / use physical phone');
+    setReminderStatus(created > 0 ? `${created} daily reminders set` : 'Reminders need a development build on Android Expo Go');
   }
 
   async function clearReminders() {
@@ -213,7 +258,7 @@ export default function App() {
       <ExpoStatusBar style="dark" />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <View style={styles.header}>
-          <Text style={styles.title}>MummaFit Marathi</Text>
+          <Text style={styles.title}>mummafit</Text>
           <Text style={styles.subtitle}>Breastfeeding-safe habit tracker</Text>
         </View>
 
@@ -376,14 +421,45 @@ export default function App() {
             <View>
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Homemade recipe calculator</Text>
-                <Text style={styles.body}>Add ingredients used in the whole dish, then enter servings.</Text>
+                <Text style={styles.body}>Add approximate grams for each ingredient used in the full dish, then enter servings.</Text>
                 <Text style={styles.label}>Ingredient</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.foodSelector}>
-                  {FOODS.map((food) => <FoodChip key={food.id} foodId={food.id} selected={selectedFoodId === food.id} onPress={() => setSelectedFoodId(food.id)} />)}
+                  {RECIPE_INGREDIENTS.map((ingredient) => (
+                    <RecipeIngredientChip
+                      key={ingredient.id}
+                      ingredientId={ingredient.id}
+                      selected={selectedRecipeIngredientId === ingredient.id}
+                      onPress={() => setSelectedRecipeIngredientId(ingredient.id)}
+                    />
+                  ))}
                 </ScrollView>
-                <Text style={styles.label}>Quantity</Text>
-                <TextInput value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" style={styles.input} />
-                <ActionButton label="Add ingredient" onPress={addRecipeItem} />
+                <View style={styles.inputGrid}>
+                  <View style={styles.inputCell}>
+                    <Text style={styles.label}>Approx weight (g)</Text>
+                    <TextInput value={recipeWeightGrams} onChangeText={setRecipeWeightGrams} keyboardType="decimal-pad" style={styles.input} placeholder="Example: 150" />
+                  </View>
+                  <View style={styles.inputCell}>
+                    <Text style={styles.label}>Calories / 100 g</Text>
+                    <Text style={styles.readOnlyValue}>{selectedRecipeIngredient?.caloriesPer100g ?? 0}</Text>
+                  </View>
+                </View>
+                {selectedRecipeIngredient && (
+                  <Text style={styles.muted}>
+                    {selectedRecipeIngredient.name}: {selectedRecipeIngredient.proteinPer100g} g protein, {selectedRecipeIngredient.carbsPer100g} g carbs, {selectedRecipeIngredient.fatPer100g} g fat per 100 g
+                  </Text>
+                )}
+                <ActionButton label="Add selected ingredient" onPress={addRecipeItem} />
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Manual ingredient</Text>
+                <Text style={styles.body}>Use this when the ingredient is not listed. Calories will be estimated from your calories-per-100g entry.</Text>
+                <Text style={styles.label}>Ingredient name</Text>
+                <TextInput value={customIngredientName} onChangeText={setCustomIngredientName} style={styles.input} placeholder="Example: Homemade chutney" />
+                <Text style={styles.label}>Calories per 100 g</Text>
+                <TextInput value={customCaloriesPer100g} onChangeText={setCustomCaloriesPer100g} keyboardType="decimal-pad" style={styles.input} placeholder="Example: 180" />
+                <Text style={styles.muted}>Use the same approximate weight field above before adding this item.</Text>
+                <ActionButton label="Add manual ingredient" onPress={addCustomRecipeItem} secondary />
               </View>
 
               <View style={styles.card}>
@@ -393,8 +469,16 @@ export default function App() {
                 <TextInput value={recipeServings} onChangeText={setRecipeServings} keyboardType="number-pad" style={styles.input} />
                 <Text style={styles.largeText}>Per serving: {perServing.calories} kcal • {perServing.protein} g protein</Text>
                 {recipeItems.map((item) => {
-                  const food = findFood(item.foodId);
-                  return <Text key={item.id} style={styles.body}>• {food?.name} × {item.quantity} {food?.unit}</Text>;
+                  const itemTotals = roundTotals(calculateItems([item]));
+                  return (
+                    <View key={item.id} style={styles.ingredientRow}>
+                      <View style={styles.flex}>
+                        <Text style={styles.body}>{item.name} • {item.weightGrams} g</Text>
+                        <Text style={styles.muted}>{itemTotals.calories} kcal • {itemTotals.protein} g protein</Text>
+                      </View>
+                      <Pressable onPress={() => deleteRecipeItem(item.id)}><Text style={styles.delete}>Delete</Text></Pressable>
+                    </View>
+                  );
                 })}
                 {recipeItems.length > 0 && <ActionButton label="Clear recipe" onPress={() => setRecipeItems([])} secondary />}
               </View>
@@ -508,11 +592,20 @@ function FoodChip({ foodId, selected, onPress }: { foodId: string; selected: boo
   );
 }
 
+function RecipeIngredientChip({ ingredientId, selected, onPress }: { ingredientId: string; selected: boolean; onPress: () => void }) {
+  const ingredient = findRecipeIngredient(ingredientId);
+  return (
+    <Pressable style={[styles.foodChip, selected && styles.choiceSelected]} onPress={onPress}>
+      <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{ingredient?.name}</Text>
+      <Text style={[styles.foodChipSub, selected && styles.choiceTextSelected]}>{ingredient?.caloriesPer100g} kcal / 100 g</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#FFF7F0',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0
+    backgroundColor: '#FFF7F0'
   },
   flex: { flex: 1 },
   header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8 },
@@ -547,6 +640,7 @@ const styles = StyleSheet.create({
   inputGrid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 },
   inputCell: { width: '48%' },
   noteInput: { minHeight: 82, textAlignVertical: 'top' },
+  readOnlyValue: { borderWidth: 1, borderColor: '#E5D3C5', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15, color: '#4D2D21', backgroundColor: '#F4E2D3', fontWeight: '800' },
   choice: { borderWidth: 1, borderColor: '#E5D3C5', paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: '#FFFDFB' },
   choiceSelected: { backgroundColor: '#4D2D21', borderColor: '#4D2D21' },
   choiceText: { color: '#4D2D21', fontWeight: '700' },
@@ -560,6 +654,7 @@ const styles = StyleSheet.create({
   mealHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   mealTitle: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 4 },
   delete: { color: '#9F362D', fontWeight: '700' },
+  ingredientRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   step: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10 },
   stepTitle: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 2 },
   historyRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 12, marginTop: 12 },

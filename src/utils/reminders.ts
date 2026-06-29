@@ -1,5 +1,4 @@
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 
 export type ReminderTime = {
   id: string;
@@ -26,20 +25,32 @@ export const DEFAULT_HEALTH_REMINDERS: ReminderTime[] = [
   { id: 'protein-1630', hour: 16, minute: 30, title: 'Protein snack', body: 'Add curd, roasted chana, sprouts, paneer/tofu, or plain whey if protein is low.' }
 ];
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true
-  })
-});
+type NotificationsModule = typeof import('expo-notifications');
+
+async function getNotifications(): Promise<NotificationsModule | null> {
+  try {
+    const notifications = await import('expo-notifications');
+    notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true
+      })
+    });
+    return notifications;
+  } catch {
+    return null;
+  }
+}
 
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!Device.isDevice) {
     return false;
   }
+  const Notifications = await getNotifications();
+  if (!Notifications) return false;
 
   const current = await Notifications.getPermissionsAsync();
   let granted = hasNotificationPermission(current);
@@ -50,14 +61,16 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return granted;
 }
 
-function hasNotificationPermission(permission: Notifications.NotificationPermissionsStatus): boolean {
-  const value = permission as Notifications.NotificationPermissionsStatus & { granted?: boolean; status?: string };
+function hasNotificationPermission(permission: unknown): boolean {
+  const value = permission as { granted?: boolean; status?: string };
   return value.granted === true || value.status === 'granted';
 }
 
 export async function scheduleDailyReminder(reminder: ReminderTime): Promise<string | null> {
   const granted = await requestNotificationPermission();
   if (!granted) return null;
+  const Notifications = await getNotifications();
+  if (!Notifications) return null;
 
   return Notifications.scheduleNotificationAsync({
     content: {
@@ -84,5 +97,7 @@ export async function scheduleDefaultReminders(): Promise<number> {
 }
 
 export async function cancelAllReminders(): Promise<void> {
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
   await Notifications.cancelAllScheduledNotificationsAsync();
 }

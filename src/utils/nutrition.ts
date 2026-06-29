@@ -26,14 +26,28 @@ export function addTotals(a: NutritionTotals, b: NutritionTotals): NutritionTota
 
 export function calculateItems(items: IngredientEntry[] | MealEntry['items']): NutritionTotals {
   return items.reduce<NutritionTotals>((total, item) => {
-    const food = findFood(item.foodId);
+    if ('weightGrams' in item && item.weightGrams && item.caloriesPer100g !== undefined) {
+      const multiplier = item.weightGrams / 100;
+      return addTotals(total, {
+        calories: item.caloriesPer100g * multiplier,
+        protein: (item.proteinPer100g ?? 0) * multiplier,
+        carbs: (item.carbsPer100g ?? 0) * multiplier,
+        fat: (item.fatPer100g ?? 0) * multiplier
+      });
+    }
+
+    const foodId = 'foodId' in item ? item.foodId : undefined;
+    const quantity = 'quantity' in item ? item.quantity : undefined;
+    if (!foodId || !quantity) return total;
+
+    const food = findFood(foodId);
     if (!food) return total;
 
     return addTotals(total, {
-      calories: food.calories * item.quantity,
-      protein: food.protein * item.quantity,
-      carbs: food.carbs * item.quantity,
-      fat: food.fat * item.quantity
+      calories: food.calories * quantity,
+      protein: food.protein * quantity,
+      carbs: food.carbs * quantity,
+      fat: food.fat * quantity
     });
   }, EMPTY_TOTALS);
 }

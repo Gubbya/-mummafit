@@ -22,8 +22,24 @@ export type MealEntry = {
 
 export type IngredientEntry = {
   id: string;
-  foodId: string;
-  quantity: number;
+  foodId?: string;
+  quantity?: number;
+  name?: string;
+  weightGrams?: number;
+  caloriesPer100g?: number;
+  proteinPer100g?: number;
+  carbsPer100g?: number;
+  fatPer100g?: number;
+};
+
+export type RecipeIngredient = {
+  id: string;
+  name: string;
+  caloriesPer100g: number;
+  proteinPer100g: number;
+  carbsPer100g: number;
+  fatPer100g: number;
+  category: 'grain' | 'dal' | 'vegetable' | 'dairy' | 'fat' | 'nut' | 'fruit' | 'protein' | 'other';
 };
 
 export type DailyLog = {

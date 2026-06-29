@@ -1,4 +1,4 @@
-# MummaFit Marathi
+# mummafit
 
 A React Native + Expo starter app for a breastfeeding-safe postpartum weight-loss tracker focused on Indian/Maharashtrian vegetarian food.
 
@@ -12,7 +12,8 @@ A React Native + Expo starter app for a breastfeeding-safe postpartum weight-los
 - C-section/postpartum-safe exercise plan
 - Food log with manual Indian food selection
 - Food plate photo attachment placeholder
-- Maharashtrian homemade recipe / ingredient calculator
+- Maharashtrian homemade recipe calculator with approximate ingredient grams
+- Manual recipe ingredients with custom calories per 100 g
 - Calories, protein, carbs, and fat estimates
 - Breastfeeding/postpartum safety warnings
 
