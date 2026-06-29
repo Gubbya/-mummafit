@@ -89,6 +89,42 @@ app.delete('/logs/:userId/:date', async (req, res) => {
   }
 });
 
+app.get('/backup/:userId', async (req, res) => {
+  try {
+    const database = await connectDb();
+    const backup = await database.collection('backups').findOne({ userId: req.params.userId });
+    if (!backup) {
+      res.status(404).json({ error: 'Backup not found' });
+      return;
+    }
+    res.json(backup.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/backup/:userId', async (req, res) => {
+  try {
+    const database = await connectDb();
+    const now = new Date();
+    await database.collection('backups').updateOne(
+      { userId: req.params.userId },
+      {
+        $set: {
+          userId: req.params.userId,
+          data: req.body,
+          updatedAt: now
+        },
+        $setOnInsert: { createdAt: now }
+      },
+      { upsert: true }
+    );
+    res.json({ ok: true, updatedAt: now });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`mummafit API running on http://localhost:${port}`);
 });

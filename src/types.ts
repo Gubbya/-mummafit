@@ -17,7 +17,19 @@ export type MealEntry = {
   mealType: MealType;
   note: string;
   imageUri?: string;
-  items: Array<{ foodId: string; quantity: number }>;
+  items: MealLogItem[];
+};
+
+export type MealLogItem = {
+  id?: string;
+  foodId?: string;
+  savedRecipeId?: string;
+  name?: string;
+  quantity: number;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
 };
 
 export type IngredientEntry = {
@@ -40,6 +52,36 @@ export type RecipeIngredient = {
   carbsPer100g: number;
   fatPer100g: number;
   category: 'grain' | 'dal' | 'vegetable' | 'dairy' | 'fat' | 'nut' | 'fruit' | 'protein' | 'other';
+};
+
+export type SavedRecipe = {
+  id: string;
+  name: string;
+  servings: number;
+  items: IngredientEntry[];
+  perServing: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+};
+
+export type UserProfile = {
+  name?: string;
+  age?: number;
+  heightCm?: number;
+  currentWeightKg?: number;
+  targetWeightKg?: number;
+  babyAgeMonths?: number;
+  thyroidDoseMcg?: number;
+  vegetarian?: boolean;
+};
+
+export type AppSettings = {
+  language: 'en' | 'mr';
+  userId: string;
+  apiUrl: string;
 };
 
 export type DailyLog = {

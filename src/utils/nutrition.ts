@@ -1,4 +1,4 @@
-import { IngredientEntry, MealEntry } from '../types';
+import { IngredientEntry, MealEntry, MealLogItem } from '../types';
 import { findFood } from '../data/foods';
 
 export type NutritionTotals = {
@@ -36,6 +36,16 @@ export function calculateItems(items: IngredientEntry[] | MealEntry['items']): N
       });
     }
 
+    if ('calories' in item && item.calories !== undefined) {
+      const quantity = 'quantity' in item ? item.quantity : 1;
+      return addTotals(total, {
+        calories: item.calories * quantity,
+        protein: (item.protein ?? 0) * quantity,
+        carbs: (item.carbs ?? 0) * quantity,
+        fat: (item.fat ?? 0) * quantity
+      });
+    }
+
     const foodId = 'foodId' in item ? item.foodId : undefined;
     const quantity = 'quantity' in item ? item.quantity : undefined;
     if (!foodId || !quantity) return total;
@@ -50,6 +60,13 @@ export function calculateItems(items: IngredientEntry[] | MealEntry['items']): N
       fat: food.fat * quantity
     });
   }, EMPTY_TOTALS);
+}
+
+export function describeMealItem(item: MealLogItem): string {
+  const food = item.foodId ? findFood(item.foodId) : undefined;
+  const name = item.name ?? food?.name ?? 'Item';
+  const unit = food?.unit ?? 'serving';
+  return `${name} x ${item.quantity} ${unit}`;
 }
 
 export function calculateMeals(meals: MealEntry[]): NutritionTotals {

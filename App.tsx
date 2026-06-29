@@ -19,14 +19,49 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FOODS, findFood } from './src/data/foods';
 import { RECIPE_INGREDIENTS, findRecipeIngredient } from './src/data/ingredients';
 import { WORKOUTS } from './src/data/workouts';
-import { DailyLog, IngredientEntry, MealEntry, MealType } from './src/types';
-import { calculateItems, calculateMeals, getDailySafetySuggestion, getFoodSuggestion, roundTotals } from './src/utils/nutrition';
+import { AppSettings, DailyLog, IngredientEntry, MealEntry, MealLogItem, MealType, SavedRecipe, UserProfile } from './src/types';
+import { calculateItems, calculateMeals, describeMealItem, getDailySafetySuggestion, getFoodSuggestion, roundTotals } from './src/utils/nutrition';
 import { cancelAllReminders, scheduleDefaultReminders } from './src/utils/reminders';
+import { getDailyTargets } from './src/utils/targets';
 
 const STORAGE_KEY = 'mummafit.dailyLog.v1';
 const HISTORY_KEY = 'mummafit.dailyHistory.v1';
+const PROFILE_KEY = 'mummafit.profile.v1';
+const RECIPES_KEY = 'mummafit.savedRecipes.v1';
+const SETTINGS_KEY = 'mummafit.settings.v1';
+
+type Tab = 'Home' | 'Check-in' | 'Food' | 'Recipe' | 'Progress' | 'Exercise' | 'Profile' | 'Cloud' | 'Safety';
+
 const mealTypes: MealType[] = ['Breakfast', 'Lunch', 'Snack', 'Dinner'];
 const moodOptions: NonNullable<DailyLog['mood']>[] = ['Great', 'Good', 'Okay', 'Low', 'Tired'];
+const tabs: Tab[] = ['Home', 'Check-in', 'Food', 'Recipe', 'Progress', 'Exercise', 'Profile', 'Cloud', 'Safety'];
+
+const words = {
+  en: {
+    subtitle: 'Breastfeeding-safe habit tracker',
+    today: 'Today',
+    targets: 'Smart targets',
+    water: 'Water',
+    calories: 'Calories',
+    protein: 'Protein',
+    weight: 'Weight',
+    quick: 'Quick actions',
+    backup: 'Backup to cloud',
+    restore: 'Restore from cloud'
+  },
+  mr: {
+    subtitle: 'आईसाठी सुरक्षित सवय ट्रॅकर',
+    today: 'आज',
+    targets: 'स्मार्ट लक्ष्य',
+    water: 'पाणी',
+    calories: 'कॅलरी',
+    protein: 'प्रोटीन',
+    weight: 'वजन',
+    quick: 'झटपट कृती',
+    backup: 'क्लाउड बॅकअप',
+    restore: 'क्लाउड रिस्टोर'
+  }
+};
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
@@ -42,38 +77,70 @@ function getDefaultLog(): DailyLog {
   };
 }
 
+function getDefaultSettings(): AppSettings {
+  return {
+    language: 'en',
+    userId: 'mummafit-personal',
+    apiUrl: 'http://192.168.31.207:4000'
+  };
+}
+
 function getWeekday(): string {
   return new Date().toLocaleDateString('en-US', { weekday: 'long' });
+}
+
+function numberFromInput(value: string): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export default function App() {
   const [log, setLog] = useState<DailyLog>(getDefaultLog);
   const [history, setHistory] = useState<DailyLog[]>([]);
-  const [activeTab, setActiveTab] = useState<'Home' | 'Check-in' | 'Food' | 'Recipe' | 'Exercise' | 'Progress' | 'Safety'>('Home');
+  const [profile, setProfile] = useState<UserProfile>({ vegetarian: true });
+  const [settings, setSettings] = useState<AppSettings>(getDefaultSettings);
+  const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
+  const [activeTab, setActiveTab] = useState<Tab>('Home');
+
   const [selectedMealType, setSelectedMealType] = useState<MealType>('Breakfast');
   const [selectedFoodId, setSelectedFoodId] = useState<string>('phulka');
   const [quantity, setQuantity] = useState<string>('1');
+  const [pendingMealItems, setPendingMealItems] = useState<MealLogItem[]>([]);
+  const [mealNote, setMealNote] = useState<string>('');
+  const [mealImageUri, setMealImageUri] = useState<string | undefined>();
+
   const [weightInput, setWeightInput] = useState<string>('');
   const [waistInput, setWaistInput] = useState<string>('');
   const [stepsInput, setStepsInput] = useState<string>('');
   const [sleepInput, setSleepInput] = useState<string>('');
   const [checkInNote, setCheckInNote] = useState<string>('');
-  const [mealNote, setMealNote] = useState<string>('');
-  const [mealImageUri, setMealImageUri] = useState<string | undefined>();
+
+  const [recipeName, setRecipeName] = useState<string>('');
   const [recipeItems, setRecipeItems] = useState<IngredientEntry[]>([]);
   const [selectedRecipeIngredientId, setSelectedRecipeIngredientId] = useState<string>('wheat-flour');
   const [recipeWeightGrams, setRecipeWeightGrams] = useState<string>('100');
   const [customIngredientName, setCustomIngredientName] = useState<string>('');
   const [customCaloriesPer100g, setCustomCaloriesPer100g] = useState<string>('');
   const [recipeServings, setRecipeServings] = useState<string>('4');
+
+  const [cloudStatus, setCloudStatus] = useState<string>('Not connected');
   const [reminderStatus, setReminderStatus] = useState<string>('Not set');
 
   useEffect(() => {
     async function load() {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      const storedHistory = await AsyncStorage.getItem(HISTORY_KEY);
+      const [stored, storedHistory, storedProfile, storedRecipes, storedSettings] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEY),
+        AsyncStorage.getItem(HISTORY_KEY),
+        AsyncStorage.getItem(PROFILE_KEY),
+        AsyncStorage.getItem(RECIPES_KEY),
+        AsyncStorage.getItem(SETTINGS_KEY)
+      ]);
+
       const parsedHistory = storedHistory ? JSON.parse(storedHistory) as DailyLog[] : [];
       setHistory(parsedHistory);
+      if (storedProfile) setProfile(JSON.parse(storedProfile) as UserProfile);
+      if (storedRecipes) setSavedRecipes(JSON.parse(storedRecipes) as SavedRecipe[]);
+      if (storedSettings) setSettings({ ...getDefaultSettings(), ...JSON.parse(storedSettings) as AppSettings });
 
       if (stored) {
         const parsed = JSON.parse(stored) as DailyLog;
@@ -90,12 +157,26 @@ export default function App() {
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(log)).catch(() => undefined);
     setHistory((current) => {
       const withoutToday = current.filter((item) => item.date !== log.date);
-      const next = [log, ...withoutToday].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
+      const next = [log, ...withoutToday].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 90);
       AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(next)).catch(() => undefined);
       return next;
     });
   }, [log]);
 
+  useEffect(() => {
+    AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile)).catch(() => undefined);
+  }, [profile]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(RECIPES_KEY, JSON.stringify(savedRecipes)).catch(() => undefined);
+  }, [savedRecipes]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)).catch(() => undefined);
+  }, [settings]);
+
+  const lang = words[settings.language];
+  const targets = useMemo(() => getDailyTargets({ ...profile, currentWeightKg: log.weightKg || profile.currentWeightKg }), [profile, log.weightKg]);
   const totals = useMemo(() => roundTotals(calculateMeals(log.meals)), [log.meals]);
   const todayWorkout = WORKOUTS.find((workout) => workout.day === getWeekday()) ?? WORKOUTS[0];
   const selectedFood = findFood(selectedFoodId);
@@ -128,42 +209,56 @@ export default function App() {
     updateLog({ waterMl: Math.max(0, log.waterMl + amount) });
   }
 
-  function numberFromInput(value: string): number | undefined {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-  }
-
   function saveCheckIn() {
+    const weightKg = numberFromInput(weightInput);
     updateLog({
-      weightKg: numberFromInput(weightInput),
+      weightKg,
       waistCm: numberFromInput(waistInput),
       steps: numberFromInput(stepsInput),
       sleepHours: numberFromInput(sleepInput),
       note: checkInNote.trim()
     });
+    if (weightKg) setProfile((current) => ({ ...current, currentWeightKg: weightKg }));
     Alert.alert('Saved', 'Your daily check-in is saved on this phone.');
   }
 
-  function addMealItem() {
+  function addPendingFoodItem() {
     const q = Number(quantity);
     if (!selectedFood || !Number.isFinite(q) || q <= 0) {
       Alert.alert('Check quantity', 'Please enter a valid quantity.');
       return;
     }
+    setPendingMealItems((items) => [{ id: `${Date.now()}`, foodId: selectedFoodId, quantity: q }, ...items]);
+    setQuantity('1');
+  }
 
+  function addPendingRecipeServing(recipe: SavedRecipe) {
+    setPendingMealItems((items) => [{
+      id: `${Date.now()}`,
+      savedRecipeId: recipe.id,
+      name: recipe.name,
+      quantity: 1,
+      ...recipe.perServing
+    }, ...items]);
+  }
+
+  function saveMeal() {
+    if (pendingMealItems.length === 0) {
+      Alert.alert('Add items', 'Add at least one food or recipe serving.');
+      return;
+    }
     const entry: MealEntry = {
       id: `${Date.now()}`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       mealType: selectedMealType,
       note: mealNote.trim(),
       imageUri: mealImageUri,
-      items: [{ foodId: selectedFoodId, quantity: q }]
+      items: pendingMealItems
     };
-
     updateLog({ meals: [entry, ...log.meals] });
+    setPendingMealItems([]);
     setMealNote('');
     setMealImageUri(undefined);
-    setQuantity('1');
   }
 
   function deleteMeal(mealId: string) {
@@ -212,8 +307,31 @@ export default function App() {
     setRecipeWeightGrams('100');
   }
 
+  function saveRecipe() {
+    const name = recipeName.trim();
+    if (!name || recipeItems.length === 0) {
+      Alert.alert('Recipe name needed', 'Add a recipe name and at least one ingredient.');
+      return;
+    }
+    const recipe: SavedRecipe = {
+      id: `${Date.now()}`,
+      name,
+      servings,
+      items: recipeItems,
+      perServing
+    };
+    setSavedRecipes((items) => [recipe, ...items]);
+    setRecipeName('');
+    setRecipeItems([]);
+    Alert.alert('Saved', `${name} is saved for quick meal logging.`);
+  }
+
   function deleteRecipeItem(itemId: string) {
     setRecipeItems((items) => items.filter((item) => item.id !== itemId));
+  }
+
+  function deleteSavedRecipe(recipeId: string) {
+    setSavedRecipes((items) => items.filter((item) => item.id !== recipeId));
   }
 
   async function pickImage() {
@@ -222,16 +340,12 @@ export default function App() {
       Alert.alert('Permission needed', 'Allow photo access to attach a food plate photo.');
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.7,
       allowsEditing: false
     });
-
-    if (!result.canceled) {
-      setMealImageUri(result.assets[0].uri);
-    }
+    if (!result.canceled) setMealImageUri(result.assets[0].uri);
   }
 
   async function setupReminders() {
@@ -244,7 +358,44 @@ export default function App() {
     setReminderStatus('All reminders cancelled');
   }
 
-  function renderTabButton(tab: typeof activeTab) {
+  async function backupToCloud() {
+    try {
+      const payload = { profile, history: [log, ...history.filter((item) => item.date !== log.date)], savedRecipes, settings };
+      const response = await fetch(`${settings.apiUrl}/backup/${settings.userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setCloudStatus(`Backed up ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (error) {
+      setCloudStatus(`Backup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async function restoreFromCloud() {
+    try {
+      const response = await fetch(`${settings.apiUrl}/backup/${settings.userId}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      if (payload.profile) setProfile(payload.profile);
+      if (Array.isArray(payload.savedRecipes)) setSavedRecipes(payload.savedRecipes);
+      if (Array.isArray(payload.history)) {
+        const logs = payload.history as DailyLog[];
+        setHistory(logs);
+        const today = logs.find((item) => item.date === todayKey()) ?? logs[0];
+        if (today) {
+          setLog(today);
+          hydrateCheckInInputs(today);
+        }
+      }
+      setCloudStatus('Restored from cloud');
+    } catch (error) {
+      setCloudStatus(`Restore failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  function renderTabButton(tab: Tab) {
     const selected = activeTab === tab;
     return (
       <Pressable key={tab} style={[styles.tab, selected && styles.tabSelected]} onPress={() => setActiveTab(tab)}>
@@ -259,47 +410,46 @@ export default function App() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <View style={styles.header}>
           <Text style={styles.title}>mummafit</Text>
-          <Text style={styles.subtitle}>Breastfeeding-safe habit tracker</Text>
+          <Text style={styles.subtitle}>{lang.subtitle}</Text>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.tabsContent}>
-          {(['Home', 'Check-in', 'Food', 'Recipe', 'Exercise', 'Progress', 'Safety'] as const).map(renderTabButton)}
+          {tabs.map(renderTabButton)}
         </ScrollView>
 
         <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
           {activeTab === 'Home' && (
             <View>
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Today</Text>
+                <Text style={styles.cardTitle}>{lang.today}</Text>
                 <Text style={styles.largeText}>{log.date}</Text>
                 <View style={styles.metricGrid}>
-                  <Metric label="Water" value={`${log.waterMl / 1000} L`} />
-                  <Metric label="Calories" value={`${totals.calories}`} />
-                  <Metric label="Protein" value={`${totals.protein} g`} />
-                  <Metric label="Weight" value={log.weightKg ? `${log.weightKg} kg` : 'Add'} />
+                  <Metric label={lang.water} value={`${(log.waterMl / 1000).toFixed(1)} L`} />
+                  <Metric label={lang.calories} value={`${totals.calories}/${targets.calories}`} />
+                  <Metric label={lang.protein} value={`${totals.protein}/${targets.protein} g`} />
+                  <Metric label={lang.weight} value={log.weightKg ? `${log.weightKg} kg` : 'Add'} />
                 </View>
+                <ProgressBar label="Calories" value={totals.calories} target={targets.calories} />
+                <ProgressBar label="Protein" value={totals.protein} target={targets.protein} />
+                <ProgressBar label="Water" value={log.waterMl} target={targets.waterMl} />
                 <Text style={styles.tip}>{getDailySafetySuggestion(totals, log.waterMl)}</Text>
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Quick actions</Text>
+                <Text style={styles.cardTitle}>{lang.quick}</Text>
                 <View style={styles.rowWrap}>
                   <ActionButton label="+250 ml water" onPress={() => addWater(250)} />
                   <ActionButton label="+500 ml water" onPress={() => addWater(500)} />
-                  <ActionButton label={log.thyroidDone ? 'Thyroid done ✓' : 'Mark thyroid'} onPress={() => updateLog({ thyroidDone: !log.thyroidDone })} />
-                  <ActionButton label={log.exerciseDone ? 'Exercise done ✓' : 'Mark exercise'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
-                  <ActionButton label="Daily check-in" onPress={() => setActiveTab('Check-in')} secondary />
+                  <ActionButton label={log.thyroidDone ? 'Thyroid done' : 'Mark thyroid'} onPress={() => updateLog({ thyroidDone: !log.thyroidDone })} />
+                  <ActionButton label={log.exerciseDone ? 'Exercise done' : 'Mark exercise'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
+                  <ActionButton label="Check-in" onPress={() => setActiveTab('Check-in')} secondary />
                 </View>
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Daily reminders</Text>
-                <Text style={styles.body}>Water, thyroid tablet, gentle exercise, and protein snack reminders.</Text>
-                <Text style={styles.muted}>Status: {reminderStatus}</Text>
-                <View style={styles.rowWrap}>
-                  <ActionButton label="Set reminders" onPress={setupReminders} />
-                  <ActionButton label="Cancel reminders" onPress={clearReminders} secondary />
-                </View>
+                <Text style={styles.cardTitle}>{lang.targets}</Text>
+                <Text style={styles.body}>{targets.calories} kcal/day • {targets.protein} g protein • {(targets.waterMl / 1000).toFixed(1)} L water</Text>
+                <Text style={styles.muted}>Targets use your profile and latest weight. Keep postpartum weight loss slow and steady.</Text>
               </View>
             </View>
           )}
@@ -308,60 +458,19 @@ export default function App() {
             <View>
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Daily check-in</Text>
-                <Text style={styles.body}>Track your body, energy, rest, and routine in one place.</Text>
-
                 <View style={styles.inputGrid}>
-                  <View style={styles.inputCell}>
-                    <Text style={styles.label}>Weight (kg)</Text>
-                    <TextInput value={weightInput} onChangeText={setWeightInput} keyboardType="decimal-pad" style={styles.input} placeholder="Example: 72.5" />
-                  </View>
-                  <View style={styles.inputCell}>
-                    <Text style={styles.label}>Waist (cm)</Text>
-                    <TextInput value={waistInput} onChangeText={setWaistInput} keyboardType="decimal-pad" style={styles.input} placeholder="Optional" />
-                  </View>
-                  <View style={styles.inputCell}>
-                    <Text style={styles.label}>Steps</Text>
-                    <TextInput value={stepsInput} onChangeText={setStepsInput} keyboardType="number-pad" style={styles.input} placeholder="Example: 4500" />
-                  </View>
-                  <View style={styles.inputCell}>
-                    <Text style={styles.label}>Sleep (hours)</Text>
-                    <TextInput value={sleepInput} onChangeText={setSleepInput} keyboardType="decimal-pad" style={styles.input} placeholder="Example: 6.5" />
-                  </View>
+                  <NumberField label="Weight (kg)" value={weightInput} onChange={setWeightInput} placeholder="72.5" />
+                  <NumberField label="Waist (cm)" value={waistInput} onChange={setWaistInput} placeholder="Optional" />
+                  <NumberField label="Steps" value={stepsInput} onChange={setStepsInput} placeholder="4500" />
+                  <NumberField label="Sleep (hours)" value={sleepInput} onChange={setSleepInput} placeholder="6.5" />
                 </View>
-
                 <Text style={styles.label}>Mood</Text>
-                <View style={styles.rowWrap}>
-                  {moodOptions.map((mood) => (
-                    <SmallChoice key={mood} label={mood} selected={log.mood === mood} onPress={() => updateLog({ mood })} />
-                  ))}
-                </View>
-
+                <View style={styles.rowWrap}>{moodOptions.map((mood) => <SmallChoice key={mood} label={mood} selected={log.mood === mood} onPress={() => updateLog({ mood })} />)}</View>
                 <Text style={styles.label}>Energy</Text>
-                <View style={styles.rowWrap}>
-                  {([1, 2, 3, 4, 5] as const).map((energy) => (
-                    <SmallChoice key={energy} label={`${energy}`} selected={log.energy === energy} onPress={() => updateLog({ energy })} />
-                  ))}
-                </View>
-
+                <View style={styles.rowWrap}>{([1, 2, 3, 4, 5] as const).map((energy) => <SmallChoice key={energy} label={`${energy}`} selected={log.energy === energy} onPress={() => updateLog({ energy })} />)}</View>
                 <Text style={styles.label}>Personal note</Text>
-                <TextInput
-                  value={checkInNote}
-                  onChangeText={setCheckInNote}
-                  placeholder="How did today feel?"
-                  style={[styles.input, styles.noteInput]}
-                  multiline
-                />
+                <TextInput value={checkInNote} onChangeText={setCheckInNote} placeholder="How did today feel?" style={[styles.input, styles.noteInput]} multiline />
                 <ActionButton label="Save check-in" onPress={saveCheckIn} />
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Today’s status</Text>
-                <View style={styles.metricGrid}>
-                  <Metric label="Mood" value={log.mood ?? 'Add'} />
-                  <Metric label="Energy" value={log.energy ? `${log.energy}/5` : 'Add'} />
-                  <Metric label="Steps" value={log.steps ? `${log.steps}` : 'Add'} />
-                  <Metric label="Sleep" value={log.sleepHours ? `${log.sleepHours} h` : 'Add'} />
-                </View>
               </View>
             </View>
           )}
@@ -369,27 +478,39 @@ export default function App() {
           {activeTab === 'Food' && (
             <View>
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Add food</Text>
-                <Text style={styles.body}>For now, attach a plate photo and select items manually. Real AI photo recognition can be added with a backend later.</Text>
+                <Text style={styles.cardTitle}>Build meal</Text>
                 <Text style={styles.label}>Meal type</Text>
                 <View style={styles.rowWrap}>{mealTypes.map((type) => <SmallChoice key={type} label={type} selected={selectedMealType === type} onPress={() => setSelectedMealType(type)} />)}</View>
-
                 <Text style={styles.label}>Food item</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.foodSelector}>
                   {FOODS.map((food) => <FoodChip key={food.id} foodId={food.id} selected={selectedFoodId === food.id} onPress={() => setSelectedFoodId(food.id)} />)}
                 </ScrollView>
-
-                <Text style={styles.label}>Quantity in selected unit</Text>
+                <Text style={styles.label}>Quantity</Text>
                 <TextInput value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" style={styles.input} />
                 {selectedFood && <Text style={styles.muted}>Selected unit: {selectedFood.unit}</Text>}
+                <ActionButton label="Add food to meal" onPress={addPendingFoodItem} />
+
+                {savedRecipes.length > 0 && <Text style={styles.label}>Saved recipe servings</Text>}
+                {savedRecipes.map((recipe) => (
+                  <View key={recipe.id} style={styles.savedRow}>
+                    <View style={styles.flex}>
+                      <Text style={styles.body}>{recipe.name}</Text>
+                      <Text style={styles.muted}>{recipe.perServing.calories} kcal • {recipe.perServing.protein} g protein / serving</Text>
+                    </View>
+                    <ActionButton label="Add" onPress={() => addPendingRecipeServing(recipe)} secondary />
+                  </View>
+                ))}
+
+                <Text style={styles.label}>Current meal items</Text>
+                {pendingMealItems.length === 0 && <Text style={styles.muted}>No items added yet.</Text>}
+                {pendingMealItems.map((item) => <Text key={item.id} style={styles.body}>• {describeMealItem(item)}</Text>)}
 
                 <Text style={styles.label}>Note</Text>
-                <TextInput value={mealNote} onChangeText={setMealNote} placeholder="Example: 2 chapati + dal, less oil" style={styles.input} />
-
+                <TextInput value={mealNote} onChangeText={setMealNote} placeholder="Example: less oil, homemade" style={styles.input} />
                 {mealImageUri && <Image source={{ uri: mealImageUri }} style={styles.preview} />}
                 <View style={styles.rowWrap}>
                   <ActionButton label="Attach plate photo" onPress={pickImage} secondary />
-                  <ActionButton label="Add food" onPress={addMealItem} />
+                  <ActionButton label="Save meal" onPress={saveMeal} />
                 </View>
               </View>
 
@@ -398,7 +519,6 @@ export default function App() {
                 {log.meals.length === 0 && <Text style={styles.muted}>No meals added yet.</Text>}
                 {log.meals.map((meal) => {
                   const mealTotals = roundTotals(calculateItems(meal.items));
-                  const food = findFood(meal.items[0]?.foodId);
                   return (
                     <View style={styles.mealCard} key={meal.id}>
                       <View style={styles.mealHeader}>
@@ -406,7 +526,7 @@ export default function App() {
                         <Pressable onPress={() => deleteMeal(meal.id)}><Text style={styles.delete}>Delete</Text></Pressable>
                       </View>
                       {meal.imageUri && <Image source={{ uri: meal.imageUri }} style={styles.smallPreview} />}
-                      <Text style={styles.body}>{food?.name} × {meal.items[0]?.quantity}</Text>
+                      {meal.items.map((item) => <Text key={item.id ?? `${item.foodId}-${item.name}`} style={styles.body}>• {describeMealItem(item)}</Text>)}
                       {!!meal.note && <Text style={styles.muted}>{meal.note}</Text>}
                       <Text style={styles.body}>{mealTotals.calories} kcal • {mealTotals.protein} g protein • {mealTotals.fat} g fat</Text>
                       <Text style={styles.tip}>{getFoodSuggestion(mealTotals)}</Text>
@@ -421,44 +541,29 @@ export default function App() {
             <View>
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Homemade recipe calculator</Text>
-                <Text style={styles.body}>Add approximate grams for each ingredient used in the full dish, then enter servings.</Text>
+                <Text style={styles.label}>Recipe name</Text>
+                <TextInput value={recipeName} onChangeText={setRecipeName} style={styles.input} placeholder="Example: Thalipeeth" />
                 <Text style={styles.label}>Ingredient</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.foodSelector}>
                   {RECIPE_INGREDIENTS.map((ingredient) => (
-                    <RecipeIngredientChip
-                      key={ingredient.id}
-                      ingredientId={ingredient.id}
-                      selected={selectedRecipeIngredientId === ingredient.id}
-                      onPress={() => setSelectedRecipeIngredientId(ingredient.id)}
-                    />
+                    <RecipeIngredientChip key={ingredient.id} ingredientId={ingredient.id} selected={selectedRecipeIngredientId === ingredient.id} onPress={() => setSelectedRecipeIngredientId(ingredient.id)} />
                   ))}
                 </ScrollView>
                 <View style={styles.inputGrid}>
-                  <View style={styles.inputCell}>
-                    <Text style={styles.label}>Approx weight (g)</Text>
-                    <TextInput value={recipeWeightGrams} onChangeText={setRecipeWeightGrams} keyboardType="decimal-pad" style={styles.input} placeholder="Example: 150" />
-                  </View>
+                  <NumberField label="Approx weight (g)" value={recipeWeightGrams} onChange={setRecipeWeightGrams} placeholder="150" />
                   <View style={styles.inputCell}>
                     <Text style={styles.label}>Calories / 100 g</Text>
                     <Text style={styles.readOnlyValue}>{selectedRecipeIngredient?.caloriesPer100g ?? 0}</Text>
                   </View>
                 </View>
-                {selectedRecipeIngredient && (
-                  <Text style={styles.muted}>
-                    {selectedRecipeIngredient.name}: {selectedRecipeIngredient.proteinPer100g} g protein, {selectedRecipeIngredient.carbsPer100g} g carbs, {selectedRecipeIngredient.fatPer100g} g fat per 100 g
-                  </Text>
-                )}
                 <ActionButton label="Add selected ingredient" onPress={addRecipeItem} />
               </View>
 
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Manual ingredient</Text>
-                <Text style={styles.body}>Use this when the ingredient is not listed. Calories will be estimated from your calories-per-100g entry.</Text>
-                <Text style={styles.label}>Ingredient name</Text>
-                <TextInput value={customIngredientName} onChangeText={setCustomIngredientName} style={styles.input} placeholder="Example: Homemade chutney" />
+                <TextInput value={customIngredientName} onChangeText={setCustomIngredientName} style={styles.input} placeholder="Ingredient name" />
                 <Text style={styles.label}>Calories per 100 g</Text>
-                <TextInput value={customCaloriesPer100g} onChangeText={setCustomCaloriesPer100g} keyboardType="decimal-pad" style={styles.input} placeholder="Example: 180" />
-                <Text style={styles.muted}>Use the same approximate weight field above before adding this item.</Text>
+                <TextInput value={customCaloriesPer100g} onChangeText={setCustomCaloriesPer100g} keyboardType="decimal-pad" style={styles.input} placeholder="180" />
                 <ActionButton label="Add manual ingredient" onPress={addCustomRecipeItem} secondary />
               </View>
 
@@ -480,7 +585,46 @@ export default function App() {
                     </View>
                   );
                 })}
-                {recipeItems.length > 0 && <ActionButton label="Clear recipe" onPress={() => setRecipeItems([])} secondary />}
+                <View style={styles.rowWrap}>
+                  {recipeItems.length > 0 && <ActionButton label="Save recipe" onPress={saveRecipe} />}
+                  {recipeItems.length > 0 && <ActionButton label="Clear" onPress={() => setRecipeItems([])} secondary />}
+                </View>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Saved recipes</Text>
+                {savedRecipes.length === 0 && <Text style={styles.muted}>No recipes saved yet.</Text>}
+                {savedRecipes.map((recipe) => (
+                  <View key={recipe.id} style={styles.savedRow}>
+                    <View style={styles.flex}>
+                      <Text style={styles.body}>{recipe.name}</Text>
+                      <Text style={styles.muted}>{recipe.perServing.calories} kcal • {recipe.perServing.protein} g protein / serving</Text>
+                    </View>
+                    <Pressable onPress={() => deleteSavedRecipe(recipe.id)}><Text style={styles.delete}>Delete</Text></Pressable>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {activeTab === 'Progress' && (
+            <View>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Progress</Text>
+                <Text style={styles.largeText}>{weightChange === undefined ? 'Add at least two weight check-ins' : `Weight change: ${weightChange > 0 ? '+' : ''}${weightChange} kg`}</Text>
+                <View style={styles.metricGrid}>
+                  <Metric label="Tracked days" value={`${history.length}`} />
+                  <Metric label="Latest waist" value={log.waistCm ? `${log.waistCm} cm` : 'Add'} />
+                  <Metric label="Latest steps" value={log.steps ? `${log.steps}` : 'Add'} />
+                  <Metric label="Sleep" value={log.sleepHours ? `${log.sleepHours} h` : 'Add'} />
+                </View>
+                {latestTracked.map((item) => (
+                  <View key={item.date} style={styles.historyRow}>
+                    <Text style={styles.historyDate}>{item.date}</Text>
+                    <ProgressBar label="Weight" value={item.weightKg ?? 0} target={profile.targetWeightKg || item.weightKg || 1} inverse />
+                    <Text style={styles.muted}>{item.weightKg ? `${item.weightKg} kg` : 'Weight -'} • {item.steps ? `${item.steps} steps` : 'Steps -'} • {item.sleepHours ? `${item.sleepHours} h sleep` : 'Sleep -'}</Text>
+                  </View>
+                ))}
               </View>
             </View>
           )}
@@ -497,37 +641,59 @@ export default function App() {
                 </View>
               ))}
               <Text style={styles.warning}>Stop if you feel C-section scar pain, dizziness, heavy bleeding, chest pain, or belly doming.</Text>
-              <ActionButton label={log.exerciseDone ? 'Marked done ✓' : 'Mark today’s exercise done'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
+              <ActionButton label={log.exerciseDone ? 'Marked done' : 'Mark today’s exercise done'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
             </View>
           )}
 
-          {activeTab === 'Progress' && (
+          {activeTab === 'Profile' && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Profile</Text>
+              <Text style={styles.label}>Name</Text>
+              <TextInput value={profile.name ?? ''} onChangeText={(name) => setProfile((current) => ({ ...current, name }))} style={styles.input} placeholder="Your name" />
+              <View style={styles.inputGrid}>
+                <ProfileNumber label="Age" value={profile.age} onChange={(age) => setProfile((current) => ({ ...current, age }))} />
+                <ProfileNumber label="Height (cm)" value={profile.heightCm} onChange={(heightCm) => setProfile((current) => ({ ...current, heightCm }))} />
+                <ProfileNumber label="Target weight" value={profile.targetWeightKg} onChange={(targetWeightKg) => setProfile((current) => ({ ...current, targetWeightKg }))} />
+                <ProfileNumber label="Baby age months" value={profile.babyAgeMonths} onChange={(babyAgeMonths) => setProfile((current) => ({ ...current, babyAgeMonths }))} />
+                <ProfileNumber label="Thyroid dose mcg" value={profile.thyroidDoseMcg} onChange={(thyroidDoseMcg) => setProfile((current) => ({ ...current, thyroidDoseMcg }))} />
+              </View>
+              <View style={styles.rowWrap}>
+                <SmallChoice label="Vegetarian" selected={profile.vegetarian !== false} onPress={() => setProfile((current) => ({ ...current, vegetarian: true }))} />
+                <SmallChoice label="Non-veg ok" selected={profile.vegetarian === false} onPress={() => setProfile((current) => ({ ...current, vegetarian: false }))} />
+              </View>
+            </View>
+          )}
+
+          {activeTab === 'Cloud' && (
             <View>
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Progress</Text>
-                <Text style={styles.largeText}>{weightChange === undefined ? 'Add at least two weight check-ins' : `Weight change: ${weightChange > 0 ? '+' : ''}${weightChange} kg`}</Text>
-                <View style={styles.metricGrid}>
-                  <Metric label="Tracked days" value={`${history.length}`} />
-                  <Metric label="Latest waist" value={log.waistCm ? `${log.waistCm} cm` : 'Add'} />
-                  <Metric label="Latest steps" value={log.steps ? `${log.steps}` : 'Add'} />
-                  <Metric label="Exercise" value={log.exerciseDone ? 'Done' : 'Pending'} />
+                <Text style={styles.cardTitle}>Cloud backup</Text>
+                <Text style={styles.label}>Backend API URL</Text>
+                <TextInput value={settings.apiUrl} onChangeText={(apiUrl) => setSettings((current) => ({ ...current, apiUrl }))} style={styles.input} autoCapitalize="none" />
+                <Text style={styles.label}>User ID</Text>
+                <TextInput value={settings.userId} onChangeText={(userId) => setSettings((current) => ({ ...current, userId }))} style={styles.input} autoCapitalize="none" />
+                <Text style={styles.muted}>Status: {cloudStatus}</Text>
+                <View style={styles.rowWrap}>
+                  <ActionButton label={lang.backup} onPress={backupToCloud} />
+                  <ActionButton label={lang.restore} onPress={restoreFromCloud} secondary />
                 </View>
-                <Text style={styles.tip}>Focus on weekly trend, strength, sleep, and milk supply. Day-to-day weight can move from water, salt, hormones, and sleep.</Text>
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Recent check-ins</Text>
-                {latestTracked.length === 0 && <Text style={styles.muted}>No check-ins saved yet.</Text>}
-                {latestTracked.map((item) => (
-                  <View key={item.date} style={styles.historyRow}>
-                    <Text style={styles.historyDate}>{item.date}</Text>
-                    <Text style={styles.body}>
-                      {item.weightKg ? `${item.weightKg} kg` : 'Weight -'} • {item.waistCm ? `${item.waistCm} cm` : 'Waist -'} • {item.steps ? `${item.steps} steps` : 'Steps -'}
-                    </Text>
-                    <Text style={styles.muted}>{item.mood ?? 'Mood -'} • Energy {item.energy ?? '-'} • Sleep {item.sleepHours ? `${item.sleepHours} h` : '-'}</Text>
-                    {!!item.note && <Text style={styles.tip}>{item.note}</Text>}
-                  </View>
-                ))}
+                <Text style={styles.cardTitle}>Language</Text>
+                <View style={styles.rowWrap}>
+                  <SmallChoice label="English" selected={settings.language === 'en'} onPress={() => setSettings((current) => ({ ...current, language: 'en' }))} />
+                  <SmallChoice label="Marathi" selected={settings.language === 'mr'} onPress={() => setSettings((current) => ({ ...current, language: 'mr' }))} />
+                </View>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Daily reminders</Text>
+                <Text style={styles.muted}>Status: {reminderStatus}</Text>
+                <View style={styles.rowWrap}>
+                  <ActionButton label="Set reminders" onPress={setupReminders} />
+                  <ActionButton label="Cancel reminders" onPress={clearReminders} secondary />
+                </View>
               </View>
             </View>
           )}
@@ -535,19 +701,11 @@ export default function App() {
           {activeTab === 'Safety' && (
             <View>
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Your safe targets</Text>
-                <Text style={styles.body}>Calories: about 1900–2100/day to start. Avoid crash dieting while breastfeeding.</Text>
-                <Text style={styles.body}>Protein: aim around 75–90 g/day from dal, usal, curd, paneer, tofu, soy chunks, and plain whey if suitable.</Text>
-                <Text style={styles.body}>Ghee: reduce slowly toward 2–3 teaspoons/day total.</Text>
-                <Text style={styles.body}>Water: about 2.5–3 L/day, based on thirst, urine colour, weather, and feeding.</Text>
-              </View>
-
-              <View style={styles.card}>
                 <Text style={styles.cardTitle}>Medical safety notes</Text>
                 <Text style={styles.warning}>This app is for tracking only. It does not replace doctor advice.</Text>
-                <Text style={styles.body}>Check TSH + Free T4 with your doctor because your levothyroxine dose changed after pregnancy.</Text>
+                <Text style={styles.body}>Check TSH + Free T4 with your doctor when levothyroxine dose changes after pregnancy.</Text>
                 <Text style={styles.body}>Keep thyroid tablet away from milk, calcium, iron, and protein shakes.</Text>
-                <Text style={styles.body}>Urgent care: severe/worsening headache, vision changes, chest pain, breathlessness, heavy bleeding, fever, or calf swelling.</Text>
+                <Text style={styles.body}>Urgent care: severe headache, vision changes, chest pain, breathlessness, heavy bleeding, fever, or calf swelling.</Text>
               </View>
             </View>
           )}
@@ -582,6 +740,40 @@ function SmallChoice({ label, selected, onPress }: { label: string; selected: bo
   );
 }
 
+function NumberField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
+  return (
+    <View style={styles.inputCell}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput value={value} onChangeText={onChange} keyboardType="decimal-pad" style={styles.input} placeholder={placeholder} />
+    </View>
+  );
+}
+
+function ProfileNumber({ label, value, onChange }: { label: string; value?: number; onChange: (value?: number) => void }) {
+  return (
+    <View style={styles.inputCell}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput value={value ? String(value) : ''} onChangeText={(text) => onChange(numberFromInput(text))} keyboardType="decimal-pad" style={styles.input} />
+    </View>
+  );
+}
+
+function ProgressBar({ label, value, target, inverse }: { label: string; value: number; target: number; inverse?: boolean }) {
+  const rawPercent = target > 0 ? value / target : 0;
+  const percent = Math.max(0, Math.min(1, inverse ? target / Math.max(value, 1) : rawPercent));
+  return (
+    <View style={styles.progressBlock}>
+      <View style={styles.progressLabelRow}>
+        <Text style={styles.muted}>{label}</Text>
+        <Text style={styles.muted}>{Math.round(value)} / {Math.round(target)}</Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${percent * 100}%` }]} />
+      </View>
+    </View>
+  );
+}
+
 function FoodChip({ foodId, selected, onPress }: { foodId: string; selected: boolean; onPress: () => void }) {
   const food = findFood(foodId);
   return (
@@ -603,10 +795,7 @@ function RecipeIngredientChip({ ingredientId, selected, onPress }: { ingredientI
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#FFF7F0'
-  },
+  safe: { flex: 1, backgroundColor: '#FFF7F0' },
   flex: { flex: 1 },
   header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8 },
   title: { fontSize: 28, fontWeight: '800', color: '#2D1B12' },
@@ -655,8 +844,13 @@ const styles = StyleSheet.create({
   mealTitle: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 4 },
   delete: { color: '#9F362D', fontWeight: '700' },
   ingredientRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  savedRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   step: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10 },
   stepTitle: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 2 },
   historyRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 12, marginTop: 12 },
-  historyDate: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 4 }
+  historyDate: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 4 },
+  progressBlock: { marginTop: 10 },
+  progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  progressTrack: { height: 10, borderRadius: 10, backgroundColor: '#F4E2D3', overflow: 'hidden' },
+  progressFill: { height: 10, borderRadius: 10, backgroundColor: '#4D2D21' }
 });
