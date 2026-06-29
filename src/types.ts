@@ -84,6 +84,14 @@ export type AppSettings = {
   apiUrl: string;
 };
 
+export type WalkEntry = {
+  id: string;
+  time: string;
+  steps: number;
+  minutes?: number;
+  note?: string;
+};
+
 export type DailyLog = {
   date: string;
   waterMl: number;
@@ -92,6 +100,7 @@ export type DailyLog = {
   thyroidDone: boolean;
   weightKg?: number;
   waistCm?: number;
+  walks?: WalkEntry[];
   steps?: number;
   sleepHours?: number;
   mood?: 'Great' | 'Good' | 'Okay' | 'Low' | 'Tired';

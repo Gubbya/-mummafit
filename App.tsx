@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FOODS, findFood } from './src/data/foods';
 import { RECIPE_INGREDIENTS, findRecipeIngredient } from './src/data/ingredients';
 import { WORKOUTS } from './src/data/workouts';
-import { AppSettings, DailyLog, IngredientEntry, MealEntry, MealLogItem, MealType, SavedRecipe, UserProfile } from './src/types';
+import { AppSettings, DailyLog, IngredientEntry, MealEntry, MealLogItem, MealType, SavedRecipe, UserProfile, WalkEntry } from './src/types';
 import { calculateItems, calculateMeals, describeMealItem, getDailySafetySuggestion, getFoodSuggestion, roundTotals } from './src/utils/nutrition';
 import { cancelAllReminders, scheduleDefaultReminders } from './src/utils/reminders';
 import { getDailyTargets } from './src/utils/targets';
@@ -89,6 +89,13 @@ function getWeekday(): string {
   return new Date().toLocaleDateString('en-US', { weekday: 'long' });
 }
 
+function getTotalSteps(log: DailyLog): number {
+  if (log.walks?.length) {
+    return log.walks.reduce((sum, walk) => sum + walk.steps, 0);
+  }
+  return log.steps ?? 0;
+}
+
 function numberFromInput(value: string): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
@@ -111,7 +118,10 @@ export default function App() {
 
   const [weightInput, setWeightInput] = useState<string>('');
   const [waistInput, setWaistInput] = useState<string>('');
-  const [stepsInput, setStepsInput] = useState<string>('');
+  const [walkStepsInput, setWalkStepsInput] = useState<string>('');
+  const [walkMinutesInput, setWalkMinutesInput] = useState<string>('');
+  const [walkNoteInput, setWalkNoteInput] = useState<string>('');
+  const [editingWalkId, setEditingWalkId] = useState<string | undefined>();
   const [sleepInput, setSleepInput] = useState<string>('');
   const [checkInNote, setCheckInNote] = useState<string>('');
 
@@ -189,14 +199,14 @@ export default function App() {
     carbs: Math.round(recipeTotals.carbs / servings),
     fat: Math.round(recipeTotals.fat / servings)
   };
-  const latestTracked = history.filter((item) => item.weightKg || item.steps || item.sleepHours || item.waistCm).slice(0, 7);
+  const totalSteps = getTotalSteps(log);
+  const latestTracked = history.filter((item) => item.weightKg || getTotalSteps(item) || item.sleepHours || item.waistCm).slice(0, 7);
   const previousTracked = latestTracked.find((item) => item.date !== log.date);
   const weightChange = log.weightKg && previousTracked?.weightKg ? Number((log.weightKg - previousTracked.weightKg).toFixed(1)) : undefined;
 
   function hydrateCheckInInputs(source: DailyLog) {
     setWeightInput(source.weightKg ? String(source.weightKg) : '');
     setWaistInput(source.waistCm ? String(source.waistCm) : '');
-    setStepsInput(source.steps ? String(source.steps) : '');
     setSleepInput(source.sleepHours ? String(source.sleepHours) : '');
     setCheckInNote(source.note ?? '');
   }
@@ -214,12 +224,56 @@ export default function App() {
     updateLog({
       weightKg,
       waistCm: numberFromInput(waistInput),
-      steps: numberFromInput(stepsInput),
       sleepHours: numberFromInput(sleepInput),
       note: checkInNote.trim()
     });
     if (weightKg) setProfile((current) => ({ ...current, currentWeightKg: weightKg }));
     Alert.alert('Saved', 'Your daily check-in is saved on this phone.');
+  }
+
+  function resetWalkForm() {
+    setWalkStepsInput('');
+    setWalkMinutesInput('');
+    setWalkNoteInput('');
+    setEditingWalkId(undefined);
+  }
+
+  function saveWalk() {
+    const steps = Number(walkStepsInput);
+    const minutes = numberFromInput(walkMinutesInput);
+    if (!Number.isFinite(steps) || steps <= 0) {
+      Alert.alert('Check steps', 'Please enter steps for this walk.');
+      return;
+    }
+
+    const walk: WalkEntry = {
+      id: editingWalkId ?? `${Date.now()}`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      steps: Math.round(steps),
+      minutes,
+      note: walkNoteInput.trim()
+    };
+
+    const currentWalks = log.walks ?? [];
+    const nextWalks = editingWalkId
+      ? currentWalks.map((item) => item.id === editingWalkId ? { ...walk, time: item.time } : item)
+      : [walk, ...currentWalks];
+
+    updateLog({ walks: nextWalks, steps: nextWalks.reduce((sum, item) => sum + item.steps, 0) });
+    resetWalkForm();
+  }
+
+  function editWalk(walk: WalkEntry) {
+    setEditingWalkId(walk.id);
+    setWalkStepsInput(String(walk.steps));
+    setWalkMinutesInput(walk.minutes ? String(walk.minutes) : '');
+    setWalkNoteInput(walk.note ?? '');
+  }
+
+  function deleteWalk(walkId: string) {
+    const nextWalks = (log.walks ?? []).filter((walk) => walk.id !== walkId);
+    updateLog({ walks: nextWalks, steps: nextWalks.reduce((sum, item) => sum + item.steps, 0) });
+    if (editingWalkId === walkId) resetWalkForm();
   }
 
   function addPendingFoodItem() {
@@ -461,9 +515,35 @@ export default function App() {
                 <View style={styles.inputGrid}>
                   <NumberField label="Weight (kg)" value={weightInput} onChange={setWeightInput} placeholder="72.5" />
                   <NumberField label="Waist (cm)" value={waistInput} onChange={setWaistInput} placeholder="Optional" />
-                  <NumberField label="Steps" value={stepsInput} onChange={setStepsInput} placeholder="4500" />
                   <NumberField label="Sleep (hours)" value={sleepInput} onChange={setSleepInput} placeholder="6.5" />
                 </View>
+                <View style={styles.walkHeader}>
+                  <View>
+                    <Text style={styles.label}>Today’s walks</Text>
+                    <Text style={styles.largeText}>{totalSteps} total steps</Text>
+                  </View>
+                  {editingWalkId && <Pressable onPress={resetWalkForm}><Text style={styles.delete}>Cancel edit</Text></Pressable>}
+                </View>
+                <View style={styles.inputGrid}>
+                  <NumberField label="Walk steps" value={walkStepsInput} onChange={setWalkStepsInput} placeholder="1200" />
+                  <NumberField label="Minutes" value={walkMinutesInput} onChange={setWalkMinutesInput} placeholder="15" />
+                </View>
+                <Text style={styles.label}>Walk note</Text>
+                <TextInput value={walkNoteInput} onChangeText={setWalkNoteInput} placeholder="Morning / after lunch / evening" style={styles.input} />
+                <ActionButton label={editingWalkId ? 'Update walk' : 'Add walk'} onPress={saveWalk} secondary />
+                {(log.walks ?? []).length === 0 && log.steps ? <Text style={styles.muted}>Old saved steps: {log.steps}. Add walks to split them by time.</Text> : null}
+                {(log.walks ?? []).map((walk) => (
+                  <View key={walk.id} style={styles.walkRow}>
+                    <View style={styles.flex}>
+                      <Text style={styles.body}>{walk.steps} steps • {walk.minutes ? `${walk.minutes} min` : 'minutes -'} • {walk.time}</Text>
+                      {!!walk.note && <Text style={styles.muted}>{walk.note}</Text>}
+                    </View>
+                    <View style={styles.rowWrapTight}>
+                      <Pressable onPress={() => editWalk(walk)}><Text style={styles.linkText}>Edit</Text></Pressable>
+                      <Pressable onPress={() => deleteWalk(walk.id)}><Text style={styles.delete}>Delete</Text></Pressable>
+                    </View>
+                  </View>
+                ))}
                 <Text style={styles.label}>Mood</Text>
                 <View style={styles.rowWrap}>{moodOptions.map((mood) => <SmallChoice key={mood} label={mood} selected={log.mood === mood} onPress={() => updateLog({ mood })} />)}</View>
                 <Text style={styles.label}>Energy</Text>
@@ -615,14 +695,14 @@ export default function App() {
                 <View style={styles.metricGrid}>
                   <Metric label="Tracked days" value={`${history.length}`} />
                   <Metric label="Latest waist" value={log.waistCm ? `${log.waistCm} cm` : 'Add'} />
-                  <Metric label="Latest steps" value={log.steps ? `${log.steps}` : 'Add'} />
+                  <Metric label="Latest steps" value={totalSteps ? `${totalSteps}` : 'Add'} />
                   <Metric label="Sleep" value={log.sleepHours ? `${log.sleepHours} h` : 'Add'} />
                 </View>
                 {latestTracked.map((item) => (
                   <View key={item.date} style={styles.historyRow}>
                     <Text style={styles.historyDate}>{item.date}</Text>
                     <ProgressBar label="Weight" value={item.weightKg ?? 0} target={profile.targetWeightKg || item.weightKg || 1} inverse />
-                    <Text style={styles.muted}>{item.weightKg ? `${item.weightKg} kg` : 'Weight -'} • {item.steps ? `${item.steps} steps` : 'Steps -'} • {item.sleepHours ? `${item.sleepHours} h sleep` : 'Sleep -'}</Text>
+                    <Text style={styles.muted}>{item.weightKg ? `${item.weightKg} kg` : 'Weight -'} • {getTotalSteps(item) ? `${getTotalSteps(item)} steps` : 'Steps -'} • {item.sleepHours ? `${item.sleepHours} h sleep` : 'Sleep -'}</Text>
                   </View>
                 ))}
               </View>
@@ -820,6 +900,7 @@ const styles = StyleSheet.create({
   metricValue: { fontSize: 18, fontWeight: '800', color: '#2D1B12' },
   metricLabel: { fontSize: 12, color: '#715A4B', marginTop: 2 },
   rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  rowWrapTight: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'center' },
   button: { backgroundColor: '#4D2D21', paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, marginTop: 8 },
   buttonSecondary: { backgroundColor: '#F4E2D3' },
   buttonText: { color: '#FFFFFF', fontWeight: '800' },
@@ -843,6 +924,9 @@ const styles = StyleSheet.create({
   mealHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   mealTitle: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 4 },
   delete: { color: '#9F362D', fontWeight: '700' },
+  linkText: { color: '#4D2D21', fontWeight: '800' },
+  walkHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  walkRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   ingredientRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   savedRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   step: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 10, marginTop: 10 },
