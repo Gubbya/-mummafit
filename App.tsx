@@ -30,11 +30,13 @@ const PROFILE_KEY = 'mummafit.profile.v1';
 const RECIPES_KEY = 'mummafit.savedRecipes.v1';
 const SETTINGS_KEY = 'mummafit.settings.v1';
 
-type Tab = 'Home' | 'Check-in' | 'Food' | 'Recipe' | 'Progress' | 'Exercise' | 'Profile' | 'Cloud' | 'Safety';
+type Tab = 'Home' | 'Check-in' | 'Food' | 'Recipe' | 'Progress' | 'History' | 'Exercise' | 'Profile' | 'Cloud' | 'Safety';
+type HistoryPeriod = 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
 
 const mealTypes: MealType[] = ['Breakfast', 'Lunch', 'Snack', 'Dinner'];
 const moodOptions: NonNullable<DailyLog['mood']>[] = ['Great', 'Good', 'Okay', 'Low', 'Tired'];
-const tabs: Tab[] = ['Home', 'Check-in', 'Food', 'Recipe', 'Progress', 'Exercise', 'Profile', 'Cloud', 'Safety'];
+const tabs: Tab[] = ['Home', 'Check-in', 'Food', 'Recipe', 'Progress', 'History', 'Exercise', 'Profile', 'Cloud', 'Safety'];
+const historyPeriods: HistoryPeriod[] = ['Daily', 'Weekly', 'Monthly', 'Yearly'];
 
 const words = {
   en: {
@@ -101,6 +103,108 @@ function numberFromInput(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+type HistorySummary = {
+  key: string;
+  label: string;
+  days: number;
+  calories: number;
+  protein: number;
+  waterMl: number;
+  steps: number;
+  walks: number;
+  sleepHours: number;
+  weightKg?: number;
+  waistCm?: number;
+};
+
+function getWeekStart(date: Date): Date {
+  const result = new Date(date);
+  const day = result.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + diff);
+  return result;
+}
+
+function formatDateKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function getHistoryGroup(log: DailyLog, period: HistoryPeriod): { key: string; label: string } {
+  const date = new Date(`${log.date}T00:00:00`);
+  if (period === 'Daily') return { key: log.date, label: log.date };
+  if (period === 'Weekly') {
+    const start = getWeekStart(date);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { key: formatDateKey(start), label: `${formatDateKey(start)} to ${formatDateKey(end)}` };
+  }
+  if (period === 'Monthly') {
+    return {
+      key: log.date.slice(0, 7),
+      label: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    };
+  }
+  return { key: log.date.slice(0, 4), label: log.date.slice(0, 4) };
+}
+
+function buildHistorySummaries(logs: DailyLog[], period: HistoryPeriod): HistorySummary[] {
+  const map = new Map<string, HistorySummary & { weightCount: number; waistCount: number; sleepCount: number }>();
+
+  logs.forEach((item) => {
+    const group = getHistoryGroup(item, period);
+    const totals = roundTotals(calculateMeals(item.meals));
+    const current = map.get(group.key) ?? {
+      key: group.key,
+      label: group.label,
+      days: 0,
+      calories: 0,
+      protein: 0,
+      waterMl: 0,
+      steps: 0,
+      walks: 0,
+      sleepHours: 0,
+      weightKg: 0,
+      waistCm: 0,
+      weightCount: 0,
+      waistCount: 0,
+      sleepCount: 0
+    };
+
+    current.days += 1;
+    current.calories += totals.calories;
+    current.protein += totals.protein;
+    current.waterMl += item.waterMl;
+    current.steps += getTotalSteps(item);
+    current.walks += item.walks?.length ?? (item.steps ? 1 : 0);
+    if (item.sleepHours) {
+      current.sleepHours += item.sleepHours;
+      current.sleepCount += 1;
+    }
+    if (item.weightKg) {
+      current.weightKg = (current.weightKg ?? 0) + item.weightKg;
+      current.weightCount += 1;
+    }
+    if (item.waistCm) {
+      current.waistCm = (current.waistCm ?? 0) + item.waistCm;
+      current.waistCount += 1;
+    }
+    map.set(group.key, current);
+  });
+
+  return Array.from(map.values())
+    .sort((a, b) => b.key.localeCompare(a.key))
+    .map((item) => ({
+      ...item,
+      calories: Math.round(item.calories),
+      protein: Math.round(item.protein),
+      waterMl: Math.round(item.waterMl),
+      steps: Math.round(item.steps),
+      sleepHours: item.sleepCount ? Number((item.sleepHours / item.sleepCount).toFixed(1)) : 0,
+      weightKg: item.weightCount ? Number(((item.weightKg ?? 0) / item.weightCount).toFixed(1)) : undefined,
+      waistCm: item.waistCount ? Number(((item.waistCm ?? 0) / item.waistCount).toFixed(1)) : undefined
+    }));
+}
+
 export default function App() {
   const [log, setLog] = useState<DailyLog>(getDefaultLog);
   const [history, setHistory] = useState<DailyLog[]>([]);
@@ -108,6 +212,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(getDefaultSettings);
   const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('Home');
+  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('Daily');
 
   const [selectedMealType, setSelectedMealType] = useState<MealType>('Breakfast');
   const [selectedFoodId, setSelectedFoodId] = useState<string>('phulka');
@@ -200,6 +305,8 @@ export default function App() {
     fat: Math.round(recipeTotals.fat / servings)
   };
   const totalSteps = getTotalSteps(log);
+  const allLogs = useMemo(() => [log, ...history.filter((item) => item.date !== log.date)], [history, log]);
+  const historySummaries = useMemo(() => buildHistorySummaries(allLogs, historyPeriod), [allLogs, historyPeriod]);
   const latestTracked = history.filter((item) => item.weightKg || getTotalSteps(item) || item.sleepHours || item.waistCm).slice(0, 7);
   const previousTracked = latestTracked.find((item) => item.date !== log.date);
   const weightChange = log.weightKg && previousTracked?.weightKg ? Number((log.weightKg - previousTracked.weightKg).toFixed(1)) : undefined;
@@ -709,6 +816,49 @@ export default function App() {
             </View>
           )}
 
+          {activeTab === 'History' && (
+            <View>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>History</Text>
+                <View style={styles.rowWrap}>
+                  {historyPeriods.map((period) => (
+                    <SmallChoice key={period} label={period} selected={historyPeriod === period} onPress={() => setHistoryPeriod(period)} />
+                  ))}
+                </View>
+                <Text style={styles.muted}>{historySummaries.length} {historyPeriod.toLowerCase()} record{historySummaries.length === 1 ? '' : 's'}</Text>
+              </View>
+
+              {historySummaries.length === 0 && (
+                <View style={styles.card}>
+                  <Text style={styles.muted}>No history yet. Save check-ins, meals, water, and walks to build your history.</Text>
+                </View>
+              )}
+
+              {historySummaries.map((summary) => (
+                <View style={styles.card} key={`${historyPeriod}-${summary.key}`}>
+                  <View style={styles.historyTitleRow}>
+                    <Text style={styles.cardTitle}>{summary.label}</Text>
+                    <Text style={styles.historyBadge}>{summary.days} day{summary.days === 1 ? '' : 's'}</Text>
+                  </View>
+                  <View style={styles.metricGrid}>
+                    <Metric label="Calories" value={`${summary.calories}`} />
+                    <Metric label="Protein" value={`${summary.protein} g`} />
+                    <Metric label="Water" value={`${(summary.waterMl / 1000).toFixed(1)} L`} />
+                    <Metric label="Steps" value={`${summary.steps}`} />
+                  </View>
+                  <View style={styles.summaryLine}>
+                    <Text style={styles.body}>Walks: {summary.walks}</Text>
+                    <Text style={styles.body}>Avg sleep: {summary.sleepHours ? `${summary.sleepHours} h` : '-'}</Text>
+                  </View>
+                  <View style={styles.summaryLine}>
+                    <Text style={styles.muted}>Avg weight: {summary.weightKg ? `${summary.weightKg} kg` : '-'}</Text>
+                    <Text style={styles.muted}>Avg waist: {summary.waistCm ? `${summary.waistCm} cm` : '-'}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
           {activeTab === 'Exercise' && (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{todayWorkout.title}</Text>
@@ -933,6 +1083,9 @@ const styles = StyleSheet.create({
   stepTitle: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 2 },
   historyRow: { borderTopWidth: 1, borderTopColor: '#F1E2D6', paddingTop: 12, marginTop: 12 },
   historyDate: { fontSize: 15, fontWeight: '800', color: '#2D1B12', marginBottom: 4 },
+  historyTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  historyBadge: { backgroundColor: '#F4E2D3', color: '#4D2D21', fontSize: 12, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  summaryLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 8 },
   progressBlock: { marginTop: 10 },
   progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   progressTrack: { height: 10, borderRadius: 10, backgroundColor: '#F4E2D3', overflow: 'hidden' },
