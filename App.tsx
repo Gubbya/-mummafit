@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { Pedometer } from 'expo-sensors';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -227,6 +228,8 @@ export default function App() {
   const [walkMinutesInput, setWalkMinutesInput] = useState<string>('');
   const [walkNoteInput, setWalkNoteInput] = useState<string>('');
   const [editingWalkId, setEditingWalkId] = useState<string | undefined>();
+  const [autoSteps, setAutoSteps] = useState<number | undefined>();
+  const [pedometerStatus, setPedometerStatus] = useState<string>('Not checked');
   const [sleepInput, setSleepInput] = useState<string>('');
   const [checkInNote, setCheckInNote] = useState<string>('');
 
@@ -336,6 +339,33 @@ export default function App() {
     });
     if (weightKg) setProfile((current) => ({ ...current, currentWeightKg: weightKg }));
     Alert.alert('Saved', 'Your daily check-in is saved on this phone.');
+  }
+
+  async function refreshAutoSteps() {
+    try {
+      const available = await Pedometer.isAvailableAsync();
+      if (!available) {
+        setPedometerStatus('Step counter not available on this device');
+        return;
+      }
+
+      const permission = await Pedometer.requestPermissionsAsync();
+      if (!permission.granted) {
+        setPedometerStatus('Permission not granted');
+        return;
+      }
+
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const result = await Pedometer.getStepCountAsync(start, new Date());
+      const steps = Math.max(0, result.steps - totalSteps);
+      setAutoSteps(result.steps);
+      setWalkStepsInput(String(steps || result.steps));
+      setWalkNoteInput(steps ? 'Auto from phone pedometer' : 'Auto total from phone pedometer');
+      setPedometerStatus(`${result.steps} phone steps today`);
+    } catch (error) {
+      setPedometerStatus(error instanceof Error ? error.message : 'Could not read steps');
+    }
   }
 
   function resetWalkForm() {
@@ -637,7 +667,11 @@ export default function App() {
                 </View>
                 <Text style={styles.label}>Walk note</Text>
                 <TextInput value={walkNoteInput} onChangeText={setWalkNoteInput} placeholder="Morning / after lunch / evening" style={styles.input} />
-                <ActionButton label={editingWalkId ? 'Update walk' : 'Add walk'} onPress={saveWalk} secondary />
+                <Text style={styles.muted}>Phone pedometer: {pedometerStatus}{autoSteps !== undefined ? ` • ${autoSteps} today` : ''}</Text>
+                <View style={styles.rowWrap}>
+                  <ActionButton label="Use phone steps" onPress={refreshAutoSteps} secondary />
+                  <ActionButton label={editingWalkId ? 'Update walk' : 'Add walk'} onPress={saveWalk} />
+                </View>
                 {(log.walks ?? []).length === 0 && log.steps ? <Text style={styles.muted}>Old saved steps: {log.steps}. Add walks to split them by time.</Text> : null}
                 {(log.walks ?? []).map((walk) => (
                   <View key={walk.id} style={styles.walkRow}>

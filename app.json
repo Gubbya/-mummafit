@@ -16,11 +16,12 @@
     },
     "android": {
       "package": "com.example.mummafit",
-      "permissions": ["POST_NOTIFICATIONS"]
+      "permissions": ["POST_NOTIFICATIONS", "ACTIVITY_RECOGNITION"]
     },
     "plugins": [
       "expo-notifications",
-      "expo-image-picker"
+      "expo-image-picker",
+      "expo-sensors"
     ]
   }
 }
