@@ -313,6 +313,17 @@ export default function App() {
   const latestTracked = history.filter((item) => item.weightKg || getTotalSteps(item) || item.sleepHours || item.waistCm).slice(0, 7);
   const previousTracked = latestTracked.find((item) => item.date !== log.date);
   const weightChange = log.weightKg && previousTracked?.weightKg ? Number((log.weightKg - previousTracked.weightKg).toFixed(1)) : undefined;
+  const firstName = profile.name?.trim().split(' ')[0];
+  const caloriePercent = Math.min(100, Math.round((totals.calories / Math.max(targets.calories, 1)) * 100));
+  const proteinPercent = Math.min(100, Math.round((totals.protein / Math.max(targets.protein, 1)) * 100));
+  const waterPercent = Math.min(100, Math.round((log.waterMl / Math.max(targets.waterMl, 1)) * 100));
+  const nextAction = totalSteps < 3000
+    ? 'A gentle 10-minute walk would move the day forward.'
+    : totals.protein < targets.protein * 0.6
+      ? 'Add one protein serving in your next meal.'
+      : log.waterMl < targets.waterMl * 0.6
+        ? 'Have a glass of water before the next task.'
+        : 'Nice steady day. Keep the evening light and calm.';
 
   function hydrateCheckInInputs(source: DailyLog) {
     setWeightInput(source.weightKg ? String(source.weightKg) : '');
@@ -611,29 +622,41 @@ export default function App() {
         <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
           {activeTab === 'Home' && (
             <View>
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>{lang.today}</Text>
-                <Text style={styles.largeText}>{log.date}</Text>
+              <View style={styles.heroCard}>
+                <Text style={styles.heroKicker}>{log.date}</Text>
+                <Text style={styles.heroTitle}>{firstName ? `Hi ${firstName},` : 'Hi,'} steady progress wins.</Text>
+                <Text style={styles.heroText}>{nextAction}</Text>
                 <View style={styles.metricGrid}>
-                  <Metric label={lang.water} value={`${(log.waterMl / 1000).toFixed(1)} L`} />
-                  <Metric label={lang.calories} value={`${totals.calories}/${targets.calories}`} />
-                  <Metric label={lang.protein} value={`${totals.protein}/${targets.protein} g`} />
-                  <Metric label={lang.weight} value={log.weightKg ? `${log.weightKg} kg` : 'Add'} />
+                  <Metric dark label={lang.water} value={`${(log.waterMl / 1000).toFixed(1)} L`} />
+                  <Metric dark label="Steps" value={`${totalSteps}`} />
+                  <Metric dark label={lang.protein} value={`${totals.protein} g`} />
+                  <Metric dark label={lang.weight} value={log.weightKg ? `${log.weightKg} kg` : 'Add'} />
+                </View>
+              </View>
+
+              <View style={styles.card}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.cardTitle}>Today’s rhythm</Text>
+                  <Text style={styles.historyBadge}>{caloriePercent}% kcal</Text>
                 </View>
                 <ProgressBar label="Calories" value={totals.calories} target={targets.calories} />
                 <ProgressBar label="Protein" value={totals.protein} target={targets.protein} />
                 <ProgressBar label="Water" value={log.waterMl} target={targets.waterMl} />
+                <View style={styles.summaryLine}>
+                  <Text style={styles.muted}>Protein {proteinPercent}%</Text>
+                  <Text style={styles.muted}>Water {waterPercent}%</Text>
+                </View>
                 <Text style={styles.tip}>{getDailySafetySuggestion(totals, log.waterMl)}</Text>
               </View>
 
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>{lang.quick}</Text>
                 <View style={styles.rowWrap}>
-                  <ActionButton label="+250 ml water" onPress={() => addWater(250)} />
-                  <ActionButton label="+500 ml water" onPress={() => addWater(500)} />
-                  <ActionButton label={log.thyroidDone ? 'Thyroid done' : 'Mark thyroid'} onPress={() => updateLog({ thyroidDone: !log.thyroidDone })} />
-                  <ActionButton label={log.exerciseDone ? 'Exercise done' : 'Mark exercise'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
-                  <ActionButton label="Check-in" onPress={() => setActiveTab('Check-in')} secondary />
+                  <ActionButton label="+250 ml" onPress={() => addWater(250)} />
+                  <ActionButton label="+500 ml" onPress={() => addWater(500)} secondary />
+                  <ActionButton label={log.thyroidDone ? 'Thyroid done' : 'Thyroid'} onPress={() => updateLog({ thyroidDone: !log.thyroidDone })} secondary />
+                  <ActionButton label={log.exerciseDone ? 'Exercise done' : 'Exercise'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} secondary />
+                  <ActionButton label="Check-in" onPress={() => setActiveTab('Check-in')} />
                 </View>
               </View>
 
@@ -863,8 +886,10 @@ export default function App() {
               </View>
 
               {historySummaries.length === 0 && (
-                <View style={styles.card}>
-                  <Text style={styles.muted}>No history yet. Save check-ins, meals, water, and walks to build your history.</Text>
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>Your history will appear here</Text>
+                  <Text style={styles.muted}>Save check-ins, meals, water, and walks for a few days. mummafit will turn them into daily, weekly, monthly, and yearly summaries.</Text>
+                  <ActionButton label="Add today’s check-in" onPress={() => setActiveTab('Check-in')} />
                 </View>
               )}
 
@@ -993,11 +1018,11 @@ export default function App() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, dark }: { label: string; value: string; dark?: boolean }) {
   return (
-    <View style={styles.metric}>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
+    <View style={[styles.metric, dark && styles.metricDark]}>
+      <Text style={[styles.metricValue, dark && styles.metricValueDark]}>{value}</Text>
+      <Text style={[styles.metricLabel, dark && styles.metricLabelDark]}>{label}</Text>
     </View>
   );
 }
@@ -1073,20 +1098,26 @@ function RecipeIngredientChip({ ingredientId, selected, onPress }: { ingredientI
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFF7F0' },
+  safe: { flex: 1, backgroundColor: '#FFF8F3' },
   flex: { flex: 1 },
-  header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8 },
-  title: { fontSize: 28, fontWeight: '800', color: '#2D1B12' },
+  header: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 10 },
+  title: { fontSize: 32, fontWeight: '900', color: '#21140F' },
   subtitle: { fontSize: 14, color: '#715A4B', marginTop: 4 },
   tabs: { maxHeight: 48, paddingBottom: 8 },
   tabsContent: { paddingHorizontal: 12, gap: 6 },
-  tab: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 16, backgroundColor: '#F4E2D3' },
+  tab: { paddingVertical: 9, paddingHorizontal: 13, borderRadius: 16, backgroundColor: '#F2E4D9' },
   tabSelected: { backgroundColor: '#4D2D21' },
   tabText: { fontSize: 12, color: '#4D2D21', fontWeight: '700' },
   tabTextSelected: { color: '#FFF7F0' },
   content: { flex: 1 },
   scrollContent: { padding: 14, paddingBottom: 40 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#F1E4DB', shadowColor: '#4D2D21', shadowOpacity: 0.08, shadowRadius: 10, elevation: 2 },
+  heroCard: { backgroundColor: '#4D2D21', borderRadius: 22, padding: 18, marginBottom: 14, shadowColor: '#4D2D21', shadowOpacity: 0.18, shadowRadius: 12, elevation: 3 },
+  heroKicker: { color: '#F6CDAF', fontSize: 13, fontWeight: '800', marginBottom: 8 },
+  heroTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', lineHeight: 30 },
+  heroText: { color: '#FCEDE2', fontSize: 14, lineHeight: 20, marginTop: 8, marginBottom: 12 },
+  emptyCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, marginBottom: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: '#D9BDAA' },
+  emptyTitle: { fontSize: 18, fontWeight: '900', color: '#2D1B12', marginBottom: 6 },
   cardTitle: { fontSize: 20, fontWeight: '800', color: '#2D1B12', marginBottom: 8 },
   largeText: { fontSize: 16, fontWeight: '700', color: '#4D2D21', marginBottom: 8 },
   body: { fontSize: 14, color: '#3D2B22', lineHeight: 20, marginBottom: 6 },
@@ -1094,13 +1125,17 @@ const styles = StyleSheet.create({
   tip: { fontSize: 13, color: '#2E604A', backgroundColor: '#EAF7EF', padding: 10, borderRadius: 12, marginTop: 8, lineHeight: 18 },
   warning: { fontSize: 13, color: '#8A3E18', backgroundColor: '#FFF0E6', padding: 10, borderRadius: 12, marginTop: 8, marginBottom: 10, lineHeight: 18 },
   metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-  metric: { width: '48%', padding: 12, borderRadius: 14, backgroundColor: '#FFF7F0' },
+  metric: { width: '48%', padding: 12, borderRadius: 14, backgroundColor: '#FFF8F3', borderWidth: 1, borderColor: '#F1E4DB' },
+  metricDark: { backgroundColor: '#634035', borderColor: '#7B564A' },
   metricValue: { fontSize: 18, fontWeight: '800', color: '#2D1B12' },
+  metricValueDark: { color: '#FFFFFF' },
   metricLabel: { fontSize: 12, color: '#715A4B', marginTop: 2 },
+  metricLabelDark: { color: '#F6CDAF' },
   rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   rowWrapTight: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'center' },
-  button: { backgroundColor: '#4D2D21', paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, marginTop: 8 },
-  buttonSecondary: { backgroundColor: '#F4E2D3' },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  button: { backgroundColor: '#4D2D21', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, marginTop: 8, minHeight: 44, justifyContent: 'center' },
+  buttonSecondary: { backgroundColor: '#F4E2D3', borderWidth: 1, borderColor: '#E4CBB9' },
   buttonText: { color: '#FFFFFF', fontWeight: '800' },
   buttonTextSecondary: { color: '#4D2D21' },
   label: { fontSize: 13, color: '#4D2D21', fontWeight: '800', marginTop: 12, marginBottom: 6 },
