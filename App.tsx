@@ -860,18 +860,32 @@ export default function App() {
           )}
 
           {activeTab === 'Exercise' && (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{todayWorkout.title}</Text>
-              <Text style={styles.largeText}>{todayWorkout.day} • {todayWorkout.totalTime}</Text>
-              {todayWorkout.steps.map((step) => (
-                <View key={step.name} style={styles.step}>
-                  <Text style={styles.stepTitle}>{step.name}</Text>
-                  <Text style={styles.body}>{step.duration}</Text>
-                  <Text style={styles.muted}>{step.notes}</Text>
+            <View>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>{todayWorkout.title}</Text>
+                <Text style={styles.largeText}>{todayWorkout.day} • {todayWorkout.totalTime}</Text>
+                <View style={styles.metricGrid}>
+                  <Metric label="Today steps" value={`${totalSteps}`} />
+                  <Metric label="Walks" value={`${log.walks?.length ?? (log.steps ? 1 : 0)}`} />
                 </View>
-              ))}
-              <Text style={styles.warning}>Stop if you feel C-section scar pain, dizziness, heavy bleeding, chest pain, or belly doming.</Text>
-              <ActionButton label={log.exerciseDone ? 'Marked done' : 'Mark today’s exercise done'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
+                <ProgressBar label="Gentle step goal" value={totalSteps} target={6000} />
+                {todayWorkout.steps.map((step) => (
+                  <View key={step.name} style={styles.step}>
+                    <Text style={styles.stepTitle}>{step.name}</Text>
+                    <Text style={styles.body}>{step.duration}</Text>
+                    <Text style={styles.muted}>{step.notes}</Text>
+                  </View>
+                ))}
+                <Text style={styles.warning}>Stop if you feel C-section scar pain, dizziness, heavy bleeding, chest pain, unusual breathlessness, milk supply drop, or belly doming.</Text>
+                <ActionButton label={log.exerciseDone ? 'Marked done' : 'Mark today’s exercise done'} onPress={() => updateLog({ exerciseDone: !log.exerciseDone })} />
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Safe fat-loss plan</Text>
+                <Text style={styles.body}>Aim for 3 short walks most days: morning, afternoon, and evening. Start with 10 minutes each and add 5 minutes/week only if recovery, sleep, and feeding feel okay.</Text>
+                <Text style={styles.body}>Do strength 3 days/week. Keep 1 recovery day. More effort is not better if it causes pain, exhaustion, or hunger spikes.</Text>
+                <Text style={styles.tip}>Best weekly target: slow fat loss, stronger legs/core, better sleep, and consistent protein. Avoid crash dieting while breastfeeding.</Text>
+              </View>
             </View>
           )}
 
